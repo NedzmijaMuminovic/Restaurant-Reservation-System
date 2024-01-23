@@ -8,14 +8,32 @@ class Restaurant:
         self.tables = simpy.Resource(env, capacity=initial_capacity)
         self.maximum_capacity = maximum_capacity
         self.reservations = []
+        self.waiting_list = []
+        self.occupied_tables = 0
 
     def reserve_table(self, guest):
+        arrival_time = self.env.now
+
+        if self.occupied_tables == self.maximum_capacity:
+            # Svi stolovi su zauzeti, dodaje gosta u listu za čekanje
+            self.add_to_waiting_list(guest, arrival_time)
+
         with self.tables.request() as table:
             yield table
+
+            self.occupied_tables += 1
+            table_allocation_time = self.env.now
             reservation_duration = random.randint(30, 120)
-            self.reservations.append((guest, self.env.now, reservation_duration))
+            self.reservations.append((guest, arrival_time, table_allocation_time, reservation_duration))
             formatted_time = self.format_time(self.env.now)
             print(f"{guest} gets a table at time {formatted_time}, reservation duration: {reservation_duration} min")
+
+            yield self.env.timeout(reservation_duration)
+
+            # Rezervacijsko vrijeme je isteklo, sjednite goste s liste čekanja
+            yield self.env.process(self.seat_guest_from_waiting_list())
+
+        self.occupied_tables -= 1
 
     def format_time(self, minutes):
         hours = minutes // 60
@@ -31,45 +49,74 @@ class Restaurant:
             print(f"Optimization: Increased capacity to {new_capacity} at time {formatted_time}")
             yield self.env.timeout(1)
 
-def show_graph(reservations):
-    times = [reservation[1] for reservation in reservations]
-    durations = [reservation[2] for reservation in reservations]
+    def add_to_waiting_list(self, guest, arrival_time):
+        self.waiting_list.append((guest, arrival_time))
+        formatted_time = self.format_time(arrival_time)
+        print(f"{guest} added to the waiting list at time {formatted_time}")
 
-    plt.step(times, durations, where='post')
+    def seat_guest_from_waiting_list(self):
+        if self.waiting_list and self.occupied_tables < self.maximum_capacity:
+            guest, arrival_time = self.waiting_list.pop(0)
+            formatted_time = self.format_time(self.env.now)
+
+            reservation_duration = random.randint(30, 120)
+            yield self.env.timeout(reservation_duration)
+
+            formatted_time = self.format_time(self.env.now)
+            self.occupied_tables -= 1
+
+def show_graph(reservations, waiting_list):
+    times = [reservation[0] for reservation in reservations]
+    durations = [reservation[1] for reservation in reservations]
+
+    waiting_list_times = [entry[0] for entry in waiting_list]
+    waiting_list_markers = [entry[1] for entry in waiting_list]
+
+    plt.step(times, durations, where='post', label='Reservations')
+    plt.scatter(waiting_list_times, waiting_list_markers, color='red', marker='x', label='Waiting List')
+
     plt.xlabel('Time (min)')
     plt.ylabel('Reservation Duration (min)')
     plt.title('Reservations at the restaurant')
+    plt.legend()
     plt.show()
 
 def create_guests(env, restaurant, names):
     for name in names:
         arrival_time = env.now
         yield env.timeout(random.uniform(0.5, 2.5))
-        env.process(guest(env, name, restaurant))
 
-def guest(env, name, restaurant):
+        with restaurant.tables.request() as table:
+            env.process(guest(env, name, restaurant, table))
+
+def guest(env, name, restaurant, table):
     formatted_arrival_time = restaurant.format_time(env.now)
     print(f"{name} arrives to the restaurant at time {formatted_arrival_time}")
-    yield env.process(restaurant.reserve_table(name))
+
+    try:
+        with table:
+            yield env.process(restaurant.reserve_table(name))
+    except simpy.Interrupt:
+        print(f"{name} leaves the restaurant early.")
 
 # Stvarna imena gostiju
 guest_names = ["John", "Emma", "Michael", "Sophia", "Daniel", "Olivia"]
 
-# Povećani kapacitet restorana
-restaurant_capacity = 8
+# POvećanje kapaciteta restorana
+restaurant_capacity = 4
 
 env = simpy.Environment()
-restaurant = Restaurant(env, initial_capacity=restaurant_capacity, maximum_capacity=15)
+restaurant = Restaurant(env, initial_capacity=restaurant_capacity, maximum_capacity=4)
 
 def report(restaurant):
     print("\nFinal report: ")
     print("Number of reservations:", len(restaurant.reservations))
-    print("Longest reservation duration:", max(reservation[2] for reservation in restaurant.reservations), "min")
-    print("Average reservation duration:", sum(reservation[2] for reservation in restaurant.reservations) / len(restaurant.reservations), "min")
+    print("Longest reservation duration:", max(reservation[3] for reservation in restaurant.reservations), "min")
+    print("Average reservation duration:", sum(reservation[3] for reservation in restaurant.reservations) / len(restaurant.reservations), "min")
 
 # Pokreni simulaciju s različitim vremenima dolaska i stvarnim imenima
 env.process(create_guests(env, restaurant, guest_names))
-env.run(until=120)  # Simuliraj do 2 sata (120 minuta)
+env.run(until=120)    # Simuliraj do 2 sata (120 minuta)
 
 # Prikazivanje grafikona
-show_graph(restaurant.reservations)
+show_graph(restaurant.reservations, restaurant.waiting_list)
