@@ -10,6 +10,7 @@ class Restaurant:
         self.reservations = []
         self.waiting_list = []
         self.occupied_tables = 0
+        self.guest_feedback = []
 
     def reserve_table(self, guest):
         arrival_time = self.env.now
@@ -29,6 +30,11 @@ class Restaurant:
             print(f"{guest} gets a table at time {formatted_time}, reservation duration: {reservation_duration} min")
 
             yield self.env.timeout(reservation_duration)
+
+            # Gost ostavlja rating od 1-5
+            feedback_rating = random.randint(1, 5)  
+            self.guest_feedback.append((guest, feedback_rating))
+            print(f"{guest} provides feedback: Rating - {feedback_rating}")
 
             # Rezervacijsko vrijeme je isteklo, sjednite goste s liste čekanja
             yield self.env.process(self.seat_guest_from_waiting_list())
@@ -65,15 +71,21 @@ class Restaurant:
             formatted_time = self.format_time(self.env.now)
             self.occupied_tables -= 1
 
-def show_graph(reservations, waiting_list):
+def show_graph(reservations, waiting_list, feedback):
     times = [reservation[0] for reservation in reservations]
     durations = [reservation[1] for reservation in reservations]
 
     waiting_list_times = [entry[0] for entry in waiting_list]
     waiting_list_markers = [entry[1] for entry in waiting_list]
 
+    feedback_times = [entry[0] for entry in feedback]
+    feedback_ratings = [entry[1] for entry in feedback]
+
     plt.step(times, durations, where='post', label='Reservations')
     plt.scatter(waiting_list_times, waiting_list_markers, color='red', marker='x', label='Waiting List')
+
+    if feedback:
+        plt.scatter(feedback_times, feedback_ratings, color='green', marker='o', label='Feedback Ratings')
 
     plt.xlabel('Time (min)')
     plt.ylabel('Reservation Duration (min)')
@@ -113,10 +125,13 @@ def report(restaurant):
     print("Number of reservations:", len(restaurant.reservations))
     print("Longest reservation duration:", max(reservation[3] for reservation in restaurant.reservations), "min")
     print("Average reservation duration:", sum(reservation[3] for reservation in restaurant.reservations) / len(restaurant.reservations), "min")
+    if restaurant.guest_feedback:
+        average_feedback = sum(feedback[1] for feedback in restaurant.guest_feedback) / len(restaurant.guest_feedback)
+        print("Average guest feedback rating:", round(average_feedback, 2))
 
 # Pokreni simulaciju s različitim vremenima dolaska i stvarnim imenima
 env.process(create_guests(env, restaurant, guest_names))
 env.run(until=120)    # Simuliraj do 2 sata (120 minuta)
 
 # Prikazivanje grafikona
-show_graph(restaurant.reservations, restaurant.waiting_list)
+show_graph(restaurant.reservations, restaurant.waiting_list, restaurant.guest_feedback)
