@@ -15,32 +15,39 @@ class Restaurant:
     def reserve_table(self, guest):
         arrival_time = self.env.now
 
-        if self.occupied_tables == self.maximum_capacity:
-            # Svi stolovi su zauzeti, dodaje gosta u listu za čekanje
-            self.add_to_waiting_list(guest, arrival_time)
+        if self.occupied_tables < self.tables.capacity:
+            with self.tables.request() as table:
+                yield table
 
-        with self.tables.request() as table:
-            yield table
+                self.occupied_tables += 1
+                table_allocation_time = self.env.now
+                reservation_duration = random.randint(30, 120)
+                self.reservations.append((guest, arrival_time, table_allocation_time, reservation_duration))
+                formatted_time = self.format_time(self.env.now)
+                print(f"{guest} gets a table at time {formatted_time}, reservation duration: {reservation_duration} min")
 
-            self.occupied_tables += 1
-            table_allocation_time = self.env.now
-            reservation_duration = random.randint(30, 120)
-            self.reservations.append((guest, arrival_time, table_allocation_time, reservation_duration))
+                # Gost ostavlja rating od 1-5
+                feedback_rating = random.randint(1, 5)  
+                self.guest_feedback.append((guest, feedback_rating))
+                print(f"{guest} provides feedback: Rating - {feedback_rating}")
+                
+                self.env.process(self.end_reservation(guest, arrival_time, reservation_duration))
+
+        else:
+            # Ako su sve stolice zauzete, dodaj gosta na listu čekanja.
+            self.waiting_list.append((guest, self.env.now))
             formatted_time = self.format_time(self.env.now)
-            print(f"{guest} gets a table at time {formatted_time}, reservation duration: {reservation_duration} min")
+            print(f"{guest} added to the waiting list at time {formatted_time}")
 
-            yield self.env.timeout(reservation_duration)
 
-            # Gost ostavlja rating od 1-5
-            feedback_rating = random.randint(1, 5)  
-            self.guest_feedback.append((guest, feedback_rating))
-            print(f"{guest} provides feedback: Rating - {feedback_rating}")
-
-            # Rezervacijsko vrijeme je isteklo, sjednite goste s liste čekanja
-            yield self.env.process(self.seat_guest_from_waiting_list())
-
+    def end_reservation(self, guest, arrival_time, reservation_duration):
+        yield self.env.timeout(reservation_duration)
         self.occupied_tables -= 1
-
+        formatted_time = self.format_time(arrival_time + reservation_duration)
+        print(f"{guest} leaves restaurant at time {formatted_time}")
+        # Rasporedi poziv za seat_guest_from_waiting_list nakon proteka vremena.
+        self.env.process(self.seat_guest_from_waiting_list())
+        
     def format_time(self, minutes):
         hours = minutes // 60
         minutes %= 60
@@ -55,21 +62,33 @@ class Restaurant:
             print(f"Optimization: Increased capacity to {new_capacity} at time {formatted_time}")
             yield self.env.timeout(1)
 
-    def add_to_waiting_list(self, guest, arrival_time):
-        self.waiting_list.append((guest, arrival_time))
-        formatted_time = self.format_time(arrival_time)
-        print(f"{guest} added to the waiting list at time {formatted_time}")
-
     def seat_guest_from_waiting_list(self):
-        if self.waiting_list and self.occupied_tables < self.maximum_capacity:
-            guest, arrival_time = self.waiting_list.pop(0)
-            formatted_time = self.format_time(self.env.now)
 
-            reservation_duration = random.randint(30, 120)
-            yield self.env.timeout(reservation_duration)
+        if self.waiting_list and self.occupied_tables < self.tables.capacity:
+            waiting_guest = min(self.waiting_list, key=lambda x: x[1])
+            guest, arrival_time = waiting_guest
 
-            formatted_time = self.format_time(self.env.now)
-            self.occupied_tables -= 1
+            # Pokušaj zatražiti stol za gosta na čekanju.
+            with self.tables.request() as table:
+                yield table
+
+                self.occupied_tables += 1
+                table_allocation_time = self.env.now
+                reservation_duration = random.randint(30, 120)
+                self.reservations.append((guest, arrival_time, table_allocation_time, reservation_duration))
+                leaving_time=self.env.now
+                formatted_time = self.format_time(leaving_time)
+                print(f"{guest} from the waiting list gets a table at time {formatted_time}, reservation duration: {reservation_duration} min")
+
+                # Gost ostavlja rating od 1-5
+                feedback_rating = random.randint(1, 5)  
+                self.guest_feedback.append((guest, feedback_rating))
+                print(f"{guest} provides feedback: Rating - {feedback_rating}")
+
+                self.env.process(self.end_reservation(guest, leaving_time, reservation_duration))
+
+                # Ukloni gosta koji je dobio stol sa liste čekanja.
+                self.waiting_list.remove(waiting_guest)
 
 def show_graph(reservations, waiting_list, feedback):
     times = [reservation[0] for reservation in reservations]
@@ -98,23 +117,19 @@ def create_guests(env, restaurant, names):
         arrival_time = env.now
         yield env.timeout(random.uniform(0.5, 2.5))
 
-        with restaurant.tables.request() as table:
-            env.process(guest(env, name, restaurant, table))
+        with restaurant.tables.request():
+            env.process(guest(env, name, restaurant))
 
-def guest(env, name, restaurant, table):
+def guest(env, name, restaurant):
     formatted_arrival_time = restaurant.format_time(env.now)
     print(f"{name} arrives to the restaurant at time {formatted_arrival_time}")
+    yield env.process(restaurant.reserve_table(name))
 
-    try:
-        with table:
-            yield env.process(restaurant.reserve_table(name))
-    except simpy.Interrupt:
-        print(f"{name} leaves the restaurant early.")
 
 # Stvarna imena gostiju
 guest_names = ["John", "Emma", "Michael", "Sophia", "Daniel", "Olivia"]
 
-# POvećanje kapaciteta restorana
+# Povećanje kapaciteta restorana
 restaurant_capacity = 4
 
 env = simpy.Environment()
@@ -131,7 +146,7 @@ def report(restaurant):
 
 # Pokreni simulaciju s različitim vremenima dolaska i stvarnim imenima
 env.process(create_guests(env, restaurant, guest_names))
-env.run(until=120)    # Simuliraj do 2 sata (120 minuta)
+env.run(until=180)    # Simuliraj do 3 sata (180 minuta)
 
 # Prikazivanje grafikona
 show_graph(restaurant.reservations, restaurant.waiting_list, restaurant.guest_feedback)
