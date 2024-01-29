@@ -91,8 +91,8 @@ class Restaurant:
                 self.waiting_list.remove(waiting_guest)
 
 def show_graph(reservations, waiting_list, feedback):
-    times = [reservation[0] for reservation in reservations]
-    durations = [reservation[1] for reservation in reservations]
+    guest_names = [reservation[0] for reservation in reservations]
+    durations = [reservation[3] for reservation in reservations]
 
     waiting_list_times = [entry[0] for entry in waiting_list]
     waiting_list_markers = [entry[1] for entry in waiting_list]
@@ -100,16 +100,31 @@ def show_graph(reservations, waiting_list, feedback):
     feedback_times = [entry[0] for entry in feedback]
     feedback_ratings = [entry[1] for entry in feedback]
 
-    plt.step(times, durations, where='post', label='Reservations')
-    plt.scatter(waiting_list_times, waiting_list_markers, color='red', marker='x', label='Waiting List')
+    fig, ax1 = plt.subplots()
 
-    if feedback:
-        plt.scatter(feedback_times, feedback_ratings, color='green', marker='o', label='Feedback Ratings')
+    # Kreiraj bar graf za prikaz rezervacija
+    ax1.bar(guest_names, durations, label='Reservations', color='#58508d', width=0.4)
 
-    plt.xlabel('Time (min)')
-    plt.ylabel('Reservation Duration (min)')
-    plt.title('Reservations at the restaurant')
-    plt.legend()
+    ax1.scatter(waiting_list_times, waiting_list_markers, color='red', marker='x', label='Waiting List')
+
+    ax1.set_xlabel('Guests')
+    ax1.set_ylabel('Reservation Duration (min)', color='#58508d')
+    ax1.tick_params('y', colors='#58508d')
+
+    # Sekundarna y osa za rating
+    ax2 = ax1.twinx()
+    scatter_ratings = ax2.scatter(feedback_times, feedback_ratings, color='#f95d6a', marker='o', label='Feedback Ratings')
+    ax2.set_ylabel('Feedback Ratings', color='#f95d6a')
+    ax2.tick_params('y', colors='#f95d6a')
+
+    handles, labels = ax1.get_legend_handles_labels()
+    handles.append(scatter_ratings)
+    labels.append('Feedback Ratings')
+
+    ax1.legend(handles, labels, loc='upper left', bbox_to_anchor=(1.1,1) )
+
+    fig.suptitle('Reservations at the restaurant')
+    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.show()
 
 def create_guests(env, restaurant, names):
