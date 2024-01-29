@@ -162,6 +162,7 @@ def report(restaurant):
 # Pokreni simulaciju s različitim vremenima dolaska i stvarnim imenima
 env.process(create_guests(env, restaurant, guest_names))
 env.run(until=180)    # Simuliraj do 3 sata (180 minuta)
+report(restaurant)
 
 # Prikazivanje grafikona
 show_graph(restaurant.reservations, restaurant.waiting_list, restaurant.guest_feedback)
